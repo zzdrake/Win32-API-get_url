@@ -1,30 +1,37 @@
-use std::{process::Command, thread, time::Duration};
+use clipboard::{ClipboardContext, ClipboardProvider};
+use std::{fs::File, io::Write, process::Command, thread, time::Duration};
 use uiautomation::{
     UIElement, UITreeWalker,
-    actions::Window,
-    controls::WindowControl,
     core::UIAutomation,
-    processes::Process,
     types::{TreeScope, UIProperty},
 };
 
 async fn launch_browser() -> Result<(), ()> {
-    Command::new(r"path-to-your-browser")
+    Command::new(r"your-browser-path")
         .spawn()
         .unwrap();
 
     Ok(())
 }
 
-async fn get_edit(walker: &UITreeWalker, ele: &UIElement) -> Result<(), ()> {
+async fn get_edit(
+    walker: &UITreeWalker,
+    ele: &UIElement,
+    file_name: &str,
+    question: &str,
+) -> Result<String, ()> {
+    let destop = dirs::desktop_dir().expect("无法获取桌面路径");
+    let file_path = destop.join(format!("{}.txt", file_name));
+    File::create(&file_path).expect("无法创建文件");
+
     if let Ok(edit) = walker.get_first_child(&ele) {
-        let _ = edit.send_keys("Hello {enter}", 0);
+        let _ = edit.send_keys(&format!("{} {{enter}}", question), 0);
     }
 
-    Ok(())
+    Ok(file_path.to_string_lossy().into_owned())
 }
 
-async fn find_copy_btn(automation: &UIAutomation) -> Result<(), ()> {
+async fn find_copy_btn(automation: &UIAutomation) -> Result<String, ()> {
     let condition = automation
         .create_property_condition(UIProperty::Name, "复制".into(), None)
         .unwrap();
@@ -38,11 +45,23 @@ async fn find_copy_btn(automation: &UIAutomation) -> Result<(), ()> {
     btn.click().unwrap();
     println!("已复制");
 
-    Ok(())
+    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+    let content = ctx.get_contents().unwrap_or_default();
+
+    Ok(content)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 3 {
+        println!("请提供要保存的文件名以及要提问的问题");
+        println!("用法: ./auto_get <文件名> <问题>");
+    }
+
+    let filename = &args[1];
+    let question = &args[2..].join(" ");
+
     launch_browser().await?;
 
     let automation = UIAutomation::new().unwrap();
@@ -55,31 +74,19 @@ async fn main() -> Result<(), ()> {
 
     thread::sleep(Duration::from_secs(10));
 
-    get_edit(&walker, &root).await?;
+    let file_path = get_edit(&walker, &root, &filename, &question).await?;
 
     thread::sleep(Duration::from_secs(10));
 
-    find_copy_btn(&automation).await?;
+    let copied_content = find_copy_btn(&automation).await?;
 
-    Process::create("notepad.exe").unwrap();
-    let matcher = automation
-        .create_matcher()
-        .from(root)
-        .timeout(10000)
-        .classname("Notepad");
-    if let Ok(notepad) = matcher.find_first() {
-        println!(
-            "Found: {} - {}",
-            notepad.get_name().unwrap(),
-            notepad.get_classname().unwrap()
-        );
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&file_path)
+        .expect("无法打开文件");
 
-        notepad.send_keys("{ctrl}v", 0).unwrap();
-        notepad.send_keys("{ctrl}s", 0).unwrap();
-
-        let window: WindowControl = notepad.try_into().unwrap();
-        window.maximize().unwrap();
-    }
+    writeln!(file, "{}", copied_content).expect("写入文件失败");
+    println!("写入成功!");
 
     Ok(())
 }
