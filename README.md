@@ -4,4 +4,4 @@ No-Win32 API
 
 get_url.py 为非调试模式获取 url
 
-auto_get: 自动打开浏览器提问 ChatGPT 问题，并将回答复制到一个文件中
+auto_get: 自动打开浏览器提问 ChatGPT 问题，并将回答复制到一个文件中，因为没做登录处理，所以使用的浏览器必须有你的cookie
